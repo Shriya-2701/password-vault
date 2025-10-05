@@ -1,16 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { toast } from 'react-toastify';
 import { useRouter } from 'next/router';
 import CryptoJS from 'crypto-js';
 import { supabase } from '../lib/supabaseClient';
 import { fetchPasswords, addPassword, updatePassword, deletePassword, PasswordEntry } from '../actions/vault';
+import type { User } from '@supabase/supabase-js';
 
 const ENCRYPTION_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvcXl0Y3Z0ZnZiaW5jbGVicG5uIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTU3ODkwNCwiZXhwIjoyMDc1MTU0OTA0fQ.qrvzZP_gwRP_gkVpIXC3XgBrEKbXpt7IDFGglsErUAE';
 
 export default function VaultPage() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [passwords, setPasswords] = useState<PasswordEntry[]>([]);
   const [form, setForm] = useState({ title: '', username: '', password: '', url: '', notes: '' });
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -26,23 +27,22 @@ export default function VaultPage() {
   const [genIncludeSymbols, setGenIncludeSymbols] = useState(true);
   const [genExcludeLookalikes, setGenExcludeLookalikes] = useState(true);
 
-  
-const checkPasswordStrength = (password: string) => {
-  if (
-    password.length >= 12 &&
-    /[A-Z]/.test(password) &&
-    /[a-z]/.test(password) &&
-    /\d/.test(password) &&
-    /[!@#$%^&*()_+\[\]{}|;:,.<>?]/.test(password)
-  ) {
-    return 'Strong';
-  }
-  if (password.length === 0) return '';
-  if (password.length < 6) return 'Weak';
-  if (/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6,}$/.test(password)) return 'Medium';
-  if (/^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(password)) return 'Strong';
-  return 'Medium';
-};
+  const checkPasswordStrength = (password: string) => {
+    if (
+      password.length >= 12 &&
+      /[A-Z]/.test(password) &&
+      /[a-z]/.test(password) &&
+      /\d/.test(password) &&
+      /[!@#$%^&*()_+\[\]{}|;:,.<>?]/.test(password)
+    ) {
+      return 'Strong';
+    }
+    if (password.length === 0) return '';
+    if (password.length < 6) return 'Weak';
+    if (/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6,}$/.test(password)) return 'Medium';
+    if (/^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(password)) return 'Strong';
+    return 'Medium';
+  };
 
   const encrypt = (text: string) => CryptoJS.AES.encrypt(text, ENCRYPTION_KEY).toString();
 
@@ -51,20 +51,23 @@ const checkPasswordStrength = (password: string) => {
     return bytes.toString(CryptoJS.enc.Utf8);
   };
 
-  const loadPasswords = async (userId: string) => {
-    setLoading(true);
-    try {
-      const entries = await fetchPasswords(userId);
-      const decrypted = entries.map((entry) => ({
-        ...entry,
-        password: entry.password ? decrypt(entry.password) : '',
-      }));
-      setPasswords(decrypted);
-    } catch (error) {
-      toast.error('Error loading passwords: ' + (error as Error).message);
-    }
-    setLoading(false);
-  };
+  const loadPasswords = useCallback(
+    async (userId: string) => {
+      setLoading(true);
+      try {
+        const entries = await fetchPasswords(userId);
+        const decrypted = entries.map((entry) => ({
+          ...entry,
+          password: entry.password ? decrypt(entry.password) : '',
+        }));
+        setPasswords(decrypted);
+      } catch (error) {
+        toast.error('Error loading passwords: ' + (error as Error).message);
+      }
+      setLoading(false);
+    },
+    [] // no dependencies, stable reference
+  );
 
   useEffect(() => {
     const checkUser = async () => {
@@ -122,7 +125,7 @@ const checkPasswordStrength = (password: string) => {
       window.removeEventListener('keydown', resetLoginTime);
       window.removeEventListener('click', resetLoginTime);
     };
-  }, [router]);
+  }, [router, loadPasswords]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -162,7 +165,7 @@ const checkPasswordStrength = (password: string) => {
 
     const encryptedPassword = encrypt(form.password);
     const entry: PasswordEntry = {
-      user_id: user.id,
+      user_id: user!.id,
       title: form.title,
       username: form.username,
       password: encryptedPassword,
@@ -179,7 +182,7 @@ const checkPasswordStrength = (password: string) => {
         await addPassword(entry);
       }
       setForm({ title: '', username: '', password: '', url: '', notes: '' });
-      await loadPasswords(user.id);
+      await loadPasswords(user!.id);
       toast.success('Password saved successfully');
     } catch (error) {
       toast.error('Error saving password: ' + (error as Error).message);
@@ -203,7 +206,7 @@ const checkPasswordStrength = (password: string) => {
     setLoading(true);
     try {
       await deletePassword(id);
-      await loadPasswords(user.id);
+      await loadPasswords(user!.id);
     } catch (error) {
       toast.error('Error deleting password: ' + (error as Error).message);
     }
@@ -222,69 +225,70 @@ const checkPasswordStrength = (password: string) => {
     });
   };
 
- const copyToClipboard = (text: string) => {
-  navigator.clipboard.writeText(text).then(() => {
-    toast.success('Password copied to clipboard');
-    setTimeout(() => {
-      navigator.clipboard.writeText(''); // Clear clipboard after 10 seconds
-    }, 10000);
-  }).catch(() => toast.error('Failed to copy password'));
-};
-
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        toast.success('Password copied to clipboard');
+        setTimeout(() => {
+          navigator.clipboard.writeText(''); // Clear clipboard after 10 seconds
+        }, 10000);
+      })
+      .catch(() => toast.error('Failed to copy password'));
+  };
 
   // Export vault data handler
   const handleExport = () => {
-  if (passwords.length === 0) {
-    toast.error('No passwords to export');
-    return;
-  }
-  const passphrase = prompt('Enter a passphrase to encrypt the export file:');
-  if (!passphrase) {
-    toast.error('Export cancelled (passphrase required)');
-    return;
-  }
-  const dataToExport = passwords.map(({ password, ...rest }) => ({
-    ...rest,
-    password,
-  }));
-  const jsonString = JSON.stringify(dataToExport);
-  const encrypted = CryptoJS.AES.encrypt(jsonString, passphrase).toString();
-  const blob = new Blob([encrypted], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'vault.enc';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  toast.success('Encrypted vault file saved');
-};
-
+    if (passwords.length === 0) {
+      toast.error('No passwords to export');
+      return;
+    }
+    const passphrase = prompt('Enter a passphrase to encrypt the export file:');
+    if (!passphrase) {
+      toast.error('Export cancelled (passphrase required)');
+      return;
+    }
+    const dataToExport = passwords.map(({ password, ...rest }) => ({
+      ...rest,
+      password,
+    }));
+    const jsonString = JSON.stringify(dataToExport);
+    const encrypted = CryptoJS.AES.encrypt(jsonString, passphrase).toString();
+    const blob = new Blob([encrypted], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'vault.enc';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Encrypted vault file saved');
+  };
 
   // Import vault data handler
- const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  const passphrase = prompt('Enter the decryption passphrase:');
-  if (!passphrase) {
-    toast.error('Import cancelled (passphrase required)');
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const encryptedText = reader.result as string;
-      const decryptedBytes = CryptoJS.AES.decrypt(encryptedText, passphrase);
-      const jsonString = decryptedBytes.toString(CryptoJS.enc.Utf8);
-      const data: PasswordEntry[] = JSON.parse(jsonString);
-      if (!Array.isArray(data)) throw new Error('Invalid file format');
-      (async () => {
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const passphrase = prompt('Enter the decryption passphrase:');
+    if (!passphrase) {
+      toast.error('Import cancelled (passphrase required)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const encryptedText = reader.result as string;
+        const decryptedBytes = CryptoJS.AES.decrypt(encryptedText, passphrase);
+        const jsonString = decryptedBytes.toString(CryptoJS.enc.Utf8);
+        const data: PasswordEntry[] = JSON.parse(jsonString);
+        if (!Array.isArray(data)) throw new Error('Invalid file format');
+
         setLoading(true);
         for (const item of data) {
           const encryptedPassword = encrypt(item.password);
           await addPassword({
-            user_id: user.id,
+            user_id: user!.id,
             title: item.title,
             username: item.username,
             password: encryptedPassword,
@@ -292,24 +296,60 @@ const checkPasswordStrength = (password: string) => {
             notes: item.notes,
           });
         }
-        await loadPasswords(user.id);
+        await loadPasswords(user!.id);
         toast.success('Vault imported successfully');
-        setLoading(false);
-      })();
-    } catch (err) {
-      toast.error('Failed to decrypt/import: ' + (err as Error).message);
-    }
+      } catch (err) {
+        toast.error('Failed to decrypt/import: ' + (err as Error).message);
+      }
+      setLoading(false);
+    };
+    reader.readAsText(file);
   };
-  reader.readAsText(file);
-};
-
 
   if (!user) return null;
+
+ /* const generatePassword = () => {
+    let upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let lower = 'abcdefghijklmnopqrstuvwxyz';
+    let numbers = '0123456789';
+    const symbols = '!@#$%^&*()_+[]{}|;:,.<>?';
+
+    if (genExcludeLookalikes) {
+      upper = upper.replaceAll(/[OIL]/g, '');
+      lower = lower.replaceAll(/[lo]/g, '');
+      numbers = numbers.replaceAll(/[01]/g, '');
+    }
+
+    let pool = '';
+    if (genIncludeUpper) pool += upper;
+    if (genIncludeLower) pool += lower;
+    if (genIncludeNumbers) pool += numbers;
+    if (genIncludeSymbols) pool += symbols;
+    if (pool.length === 0) return '';
+
+    let password = '';
+    // Guarantee one from each selected type for extra security
+    if (genIncludeUpper) password += upper[Math.floor(Math.random() * upper.length)];
+    if (genIncludeLower) password += lower[Math.floor(Math.random() * lower.length)];
+    if (genIncludeNumbers) password += numbers[Math.floor(Math.random() * numbers.length)];
+    if (genIncludeSymbols) password += symbols[Math.floor(Math.random() * symbols.length)];
+
+    for (let i = password.length; i < genLength; ++i) {
+      password += pool[Math.floor(Math.random() * pool.length)];
+    }
+    // Shuffle for randomness
+    return password
+      .split('')
+      .sort(() => 0.5 - Math.random())
+      .join('');
+  };*/
   const generatePassword = () => {
+  const minLength = Math.max(genLength, 12); // enforce minimum length of 12
   let upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   let lower = 'abcdefghijklmnopqrstuvwxyz';
   let numbers = '0123456789';
-  let symbols = '!@#$%^&*()_+[]{}|;:,.<>?';
+  const symbols = '!@#$%^&*()_+[]{}|;:,.<>?';
+
   if (genExcludeLookalikes) {
     upper = upper.replaceAll(/[OIL]/g, '');
     lower = lower.replaceAll(/[lo]/g, '');
@@ -323,21 +363,32 @@ const checkPasswordStrength = (password: string) => {
   if (genIncludeSymbols) pool += symbols;
   if (pool.length === 0) return '';
 
-  let password = '';
-  // Guarantee one from each selected type for extra security
-  if (genIncludeUpper) password += upper[Math.floor(Math.random() * upper.length)];
-  if (genIncludeLower) password += lower[Math.floor(Math.random() * lower.length)];
-  if (genIncludeNumbers) password += numbers[Math.floor(Math.random() * numbers.length)];
-  if (genIncludeSymbols) password += symbols[Math.floor(Math.random() * symbols.length)];
+  // Helper to shuffle a string
+  const shuffle = (str: string) =>
+    str
+      .split('')
+      .sort(() => 0.5 - Math.random())
+      .join('');
 
-  for (let i = password.length; i < genLength; ++i) {
-    password += pool[Math.floor(Math.random() * pool.length)];
-  }
-  // Shuffle for randomness
-  return password
-    .split('')
-    .sort(() => 0.5 - Math.random())
-    .join('');
+  // Generate candidate password until it is strong
+  let password = '';
+  do {
+    password = '';
+    // Guarantee one from each selected category
+    if (genIncludeUpper) password += upper[Math.floor(Math.random() * upper.length)];
+    if (genIncludeLower) password += lower[Math.floor(Math.random() * lower.length)];
+    if (genIncludeNumbers) password += numbers[Math.floor(Math.random() * numbers.length)];
+    if (genIncludeSymbols) password += symbols[Math.floor(Math.random() * symbols.length)];
+
+    // Fill remaining length
+    while (password.length < minLength) {
+      password += pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    password = shuffle(password);
+  } while (checkPasswordStrength(password) !== 'Strong');
+
+  return password;
 };
 
   // Filter passwords based on searchTerm
@@ -349,7 +400,6 @@ const checkPasswordStrength = (password: string) => {
       (entry.url && entry.url.toLowerCase().includes(lowerTerm))
     );
   });
-
 
   return (
     <div className="max-w-4xl mx-auto p-6 mt-8">
@@ -367,9 +417,7 @@ const checkPasswordStrength = (password: string) => {
               setForm({ ...form, title: e.target.value });
               setFormErrors((prev) => ({ ...prev, title: '' }));
             }}
-            className={`w-full p-2 border rounded ${
-              formErrors.title ? 'border-red-600' : 'border-gray-300'
-            }`}
+            className={`w-full p-2 border rounded ${formErrors.title ? 'border-red-600' : 'border-gray-300'}`}
           />
           {formErrors.title && <p className="text-red-600 text-sm mt-1">{formErrors.title}</p>}
         </div>
@@ -382,40 +430,44 @@ const checkPasswordStrength = (password: string) => {
           onChange={handleChange}
           className="w-full p-2 mb-2 border rounded"
         />
-<div className="mb-2 flex flex-wrap gap-4 items-center">
-  <label className="flex items-center gap-2">
-    Length:
-    <input
-      type="range"
-      min={8}
-      max={32}
-      value={genLength}
-      onChange={e => setGenLength(Number(e.target.value))}
-      className="ml-2"
-    />
-    <span className="ml-2">{genLength}</span>
-  </label>
-  <label className="flex items-center gap-2">
-    <input type="checkbox" checked={genIncludeUpper} onChange={() => setGenIncludeUpper(!genIncludeUpper)} />
-    Uppercase
-  </label>
-  <label className="flex items-center gap-2">
-    <input type="checkbox" checked={genIncludeLower} onChange={() => setGenIncludeLower(!genIncludeLower)} />
-    Lowercase
-  </label>
-  <label className="flex items-center gap-2">
-    <input type="checkbox" checked={genIncludeNumbers} onChange={() => setGenIncludeNumbers(!genIncludeNumbers)} />
-    Numbers
-  </label>
-  <label className="flex items-center gap-2">
-    <input type="checkbox" checked={genIncludeSymbols} onChange={() => setGenIncludeSymbols(!genIncludeSymbols)} />
-    Symbols
-  </label>
-  <label className="flex items-center gap-2">
-    <input type="checkbox" checked={genExcludeLookalikes} onChange={() => setGenExcludeLookalikes(!genExcludeLookalikes)} />
-    Exclude Look-Alikes
-  </label>
-</div>
+        <div className="mb-2 flex flex-wrap gap-4 items-center">
+          <label className="flex items-center gap-2">
+            Length:
+            <input
+              type="range"
+              min={8}
+              max={32}
+              value={genLength}
+              onChange={(e) => setGenLength(Number(e.target.value))}
+              className="ml-2"
+            />
+            <span className="ml-2">{genLength}</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={genIncludeUpper} onChange={() => setGenIncludeUpper(!genIncludeUpper)} />
+            Uppercase
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={genIncludeLower} onChange={() => setGenIncludeLower(!genIncludeLower)} />
+            Lowercase
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={genIncludeNumbers} onChange={() => setGenIncludeNumbers(!genIncludeNumbers)} />
+            Numbers
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={genIncludeSymbols} onChange={() => setGenIncludeSymbols(!genIncludeSymbols)} />
+            Symbols
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={genExcludeLookalikes}
+              onChange={() => setGenExcludeLookalikes(!genExcludeLookalikes)}
+            />
+            Exclude Look-Alikes
+          </label>
+        </div>
 
         <div className="flex items-center mb-2">
           <input
@@ -426,29 +478,19 @@ const checkPasswordStrength = (password: string) => {
             onChange={handleChange}
             className="w-full p-2 mb-2 border rounded"
           />
-          <button
-            type="button"
-            onClick={() => setShowFormPassword((prev) => !prev)}
-            className="ml-2 text-blue-600 hover:underline"
-          >
+          <button type="button" onClick={() => setShowFormPassword((prev) => !prev)} className="ml-2 text-blue-600 hover:underline">
             {showFormPassword ? 'Hide' : 'Show'}
           </button>
-           <button
-    type="button"
-    onClick={() => setForm({ ...form, password: generatePassword() })}
-    className="ml-4 bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
-  >
-    Generate
-  </button>
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, password: generatePassword() })}
+            className="ml-4 bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
+          >
+            Generate
+          </button>
         </div>
         {form.password && (
-          <p
-            className={`text-sm ${
-              formErrors.password ? 'text-red-600' : 'text-green-600'
-            }`}
-          >
-            Strength: {checkPasswordStrength(form.password)}
-          </p>
+          <p className={`text-sm ${formErrors.password ? 'text-red-600' : 'text-green-600'}`}>Strength: {checkPasswordStrength(form.password)}</p>
         )}
         {formErrors.password && <p className="text-red-600 text-sm">{formErrors.password}</p>}
 
@@ -467,11 +509,7 @@ const checkPasswordStrength = (password: string) => {
           onChange={handleChange}
           className="w-full p-2 mb-2 border rounded"
         />
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
+        <button onClick={handleSubmit} disabled={loading} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
           {editingId ? 'Update' : 'Add'}
         </button>
         {editingId && (
@@ -486,25 +524,13 @@ const checkPasswordStrength = (password: string) => {
           </button>
         )}
       </div>
-      
+
       <div className="mb-4 flex items-center space-x-4">
-        <button
-          onClick={handleExport}
-          className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-        >
+        <button onClick={handleExport} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
           Export Vault Data
         </button>
-        <input
-          id="fileInput"
-          type="file"
-          accept="application/json"
-          style={{ display: 'none' }}
-          onChange={handleImport}
-        />
-        <button
-          onClick={() => document.getElementById('fileInput')!.click()}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
+        <input id="fileInput" type="file" accept="application/json" style={{ display: 'none' }} onChange={handleImport} />
+        <button onClick={() => document.getElementById('fileInput')!.click()} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
           Import Vault Data
         </button>
       </div>
@@ -524,10 +550,7 @@ const checkPasswordStrength = (password: string) => {
 
       <ul>
         {filteredPasswords.map((entry) => (
-          <li
-            key={entry.id}
-            className="border p-4 mb-2 rounded flex justify-between items-center"
-          >
+          <li key={entry.id} className="border p-4 mb-2 rounded flex justify-between items-center">
             <div>
               <p>
                 <strong>{entry.title}</strong>
@@ -535,16 +558,10 @@ const checkPasswordStrength = (password: string) => {
               {entry.username && <p>Username: {entry.username}</p>}
               <div className="flex items-center space-x-2">
                 <p>Password: {visiblePasswords.has(entry.id || '') ? entry.password : '••••••••'}</p>
-                <button
-                  onClick={() => entry.id && togglePasswordVisibility(entry.id)}
-                  className="text-blue-600 hover:underline"
-                >
+                <button onClick={() => entry.id && togglePasswordVisibility(entry.id)} className="text-blue-600 hover:underline">
                   {visiblePasswords.has(entry.id || '') ? 'Hide' : 'Show'}
                 </button>
-                <button
-                  onClick={() => copyToClipboard(entry.password)}
-                  className="text-green-600 hover:underline"
-                >
+                <button onClick={() => copyToClipboard(entry.password)} className="text-green-600 hover:underline">
                   Copy
                 </button>
               </div>
@@ -552,16 +569,10 @@ const checkPasswordStrength = (password: string) => {
               {entry.notes && <p>Notes: {entry.notes}</p>}
             </div>
             <div className="space-x-2">
-              <button
-                onClick={() => handleEdit(entry)}
-                className="bg-yellow-400 px-3 py-1 rounded hover:bg-yellow-500"
-              >
+              <button onClick={() => handleEdit(entry)} className="bg-yellow-400 px-3 py-1 rounded hover:bg-yellow-500">
                 Edit
               </button>
-              <button
-                onClick={() => entry.id && handleDelete(entry.id)}
-                className="bg-red-600 px-3 py-1 rounded text-white hover:bg-red-700"
-              >
+              <button onClick={() => entry.id && handleDelete(entry.id)} className="bg-red-600 px-3 py-1 rounded text-white hover:bg-red-700">
                 Delete
               </button>
             </div>
