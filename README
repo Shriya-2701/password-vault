@@ -1,0 +1,63 @@
+
+
+A minimal, privacy-first password vault web app built with Next.js and Supabase.
+
+## Features
+
+- Password generation with customizable options.
+- AES encryption of passwords using CryptoJS.
+- CRUD operations on stored passwords.
+- Export and import encrypted vault data.
+- Session management and auto logout for security.
+
+## Technologies Used
+
+- **Next.js** for React framework and SSR.
+- **Supabase** for backend authentication and database.
+- **CryptoJS** for client-side AES encryption.
+- **React Toastify** for notifications.
+
+## How to Run Locally
+
+1. Clone the repository:
+
+git clone https://github.com/yourusername/password-vault.git
+cd password-vault
+
+text
+
+2. Install dependencies:
+
+npm install
+
+text
+
+3. Create a `.env.local` file and set your Supabase keys:
+
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+
+text
+
+4. Run the development server:
+
+npm run dev
+
+text
+
+5. Open [http://localhost:3000](http://localhost:3000) to view.
+
+## Build and Start Production
+
+npm run build
+npm start
+
+text
+
+## Live Demo
+
+[https://your-app.vercel.app](https://your-app.vercel.app)  *(update with your live URL)*
+
+## Crypto Note
+
+Passwords are encrypted with **CryptoJS AES** before being saved or exported, ensuring data privacy by encrypting all sensitive information client-side.
